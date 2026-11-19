@@ -416,8 +416,8 @@ static bool tensor_allows_quantization(const llama_model_quantize_params * param
         quantize &= name.find("hc_") == std::string::npos;
     }
 
-    // the decision head of vllm-decision2 is small and computed in F32
-    if (arch == LLM_ARCH_VLLM_DECISION2) {
+    // the decision head of vllm-decision2 and bongard (t5gemma2) is small and computed in F32
+    if (arch == LLM_ARCH_VLLM_DECISION2 || arch == LLM_ARCH_T5GEMMA2) {
         quantize &= name.compare(0, 9, "decision.") != 0;
     }
 

@@ -240,6 +240,8 @@ static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params
             return new llama_model_t5(params);
         case LLM_ARCH_T5ENCODER:
             return new llama_model_t5encoder(params);
+        case LLM_ARCH_T5GEMMA2:
+            return new llama_model_t5gemma2(params);
         case LLM_ARCH_JAIS:
             return new llama_model_jais(params);
         case LLM_ARCH_JAIS2:
@@ -3829,6 +3831,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_GEMMA4_ASSISTANT:
         case LLM_ARCH_GEMMA_EMBEDDING:
         case LLM_ARCH_GEMMA_EMBEDDING2:
+        case LLM_ARCH_T5GEMMA2:
         case LLM_ARCH_STARCODER2:
         case LLM_ARCH_OPENELM:
         case LLM_ARCH_GPTNEOX:
@@ -4028,6 +4031,7 @@ bool llama_model_has_encoder(const llama_model * model) {
     switch (model->arch) {
         case LLM_ARCH_T5:
         case LLM_ARCH_T5ENCODER:
+        case LLM_ARCH_T5GEMMA2:
         case LLM_ARCH_EAGLE3:
         case LLM_ARCH_DFLASH:    return true;
         default:                 return false;

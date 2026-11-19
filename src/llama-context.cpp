@@ -198,6 +198,7 @@ llama_context::llama_context(
 
     cparams.n_threads               = params.n_threads;
     cparams.n_threads_batch         = params.n_threads_batch;
+    cparams.encoder_chunk_size      = params.encoder_chunk_size > 0 ? params.encoder_chunk_size : 1;
     cparams.yarn_ext_factor         = params.yarn_ext_factor  >= 0.0f ? params.yarn_ext_factor  : hparams.yarn_ext_factor;
     cparams.yarn_attn_factor        = params.yarn_attn_factor >= 0.0f ? params.yarn_attn_factor : hparams.yarn_attn_factor;
     cparams.yarn_beta_fast          = params.yarn_beta_fast   >= 0.0f ? params.yarn_beta_fast   : hparams.yarn_beta_fast;
@@ -385,7 +386,8 @@ llama_context::llama_context(
 
         const char * LLAMA_KV_ROWS_DISABLE = getenv("LLAMA_KV_ROWS_DISABLE");
         if (!LLAMA_KV_ROWS_DISABLE) {
-            cparams.auto_fkvr = cparams.kv_unified;
+            // merged attention concatenates cross KV, so self mask must span full cache
+            cparams.auto_fkvr = cparams.kv_unified && model.arch != LLM_ARCH_T5GEMMA2;
         } else {
             LLAMA_LOG_INFO("%s: LLAMA_KV_ROWS_DISABLE set, disabling kv_rows\n", __func__);
             cparams.auto_fkvr = false;
@@ -1920,6 +1922,10 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
     // eagle3/DFlash: features as encoder input, and non-draft paths fall back to model's input dim
     const int64_t n_vocab = model.vocab.n_tokens();
 
+    if (memory && cparams.encoder_chunk_size > 1) {
+        memory->clear(true);
+    }
+
     // note: during encode, we skip position continuity checks and output all tokens
     //       a decoder without memory (see decode()) outputs the marked tokens, unless it extracts embeddings
     if (!balloc->init(batch_inp, model.vocab, memory || cparams.embeddings)) {
@@ -2005,7 +2011,7 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
     }
 
     // extract embeddings
-    if (embd.data && t_embd) {
+    if (embd.data && t_embd && (cparams.pooling_type != LLAMA_POOLING_TYPE_NONE || (uint32_t) t_embd->ne[0] == hparams.n_embd_out())) {
         ggml_backend_t backend_embd = ggml_backend_sched_get_tensor_backend(sched.get(), t_embd);
         GGML_ASSERT(backend_embd != nullptr);
 
@@ -2015,9 +2021,10 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
                     // extract token embeddings
                     GGML_ASSERT(embd.data != nullptr);
                     const uint32_t n_embd_out = hparams.n_embd_out();
+                    const int64_t  n_rows     = std::min<int64_t>(n_outputs, t_embd->ne[1]);
 
-                    GGML_ASSERT(n_outputs*n_embd_out <= (int64_t) embd.size);
-                    ggml_backend_tensor_get_async(backend_embd, t_embd, embd.data, 0, n_outputs*n_embd_out*sizeof(float));
+                    GGML_ASSERT(n_rows*n_embd_out <= (int64_t) embd.size);
+                    ggml_backend_tensor_get_async(backend_embd, t_embd, embd.data, 0, n_rows*n_embd_out*sizeof(float));
                 } break;
             case LLAMA_POOLING_TYPE_MEAN:
             case LLAMA_POOLING_TYPE_CLS:
@@ -2070,27 +2077,48 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
     }
 
     // TODO: hacky solution
-    if (model.arch == LLM_ARCH_T5 && t_embd) {
+    if ((model.arch == LLM_ARCH_T5 || model.arch == LLM_ARCH_T5GEMMA2) && t_embd) {
         //cross.t_embd = t_embd;
 
-        synchronize();
+        ggml_backend_t backend_embd = ggml_backend_sched_get_tensor_backend(sched.get(), t_embd);
+        GGML_ASSERT(backend_embd != nullptr);
 
         cross.n_embd = t_embd->ne[0];
         cross.n_enc  = t_embd->ne[1];
         cross.v_embd.resize(cross.n_embd*cross.n_enc);
-        memcpy(cross.v_embd.data(), embd.data, ggml_nbytes(t_embd));
+        GGML_ASSERT(cross.v_embd.size()*sizeof(float) == ggml_nbytes(t_embd));
+        ggml_backend_tensor_get_async(backend_embd, t_embd, cross.v_embd.data(), 0, ggml_nbytes(t_embd));
+
+        synchronize();
 
         const auto & batch = balloc->get_batch();
 
         // remember the sequence ids used during the encoding - needed for cross attention later
-        cross.seq_ids_enc.resize(n_tokens);
-        for (uint32_t i = 0; i < n_tokens; i++) {
-            cross.seq_ids_enc[i].clear();
+        if (cparams.encoder_chunk_size > 1) {
+            const uint32_t chunk_size = cparams.encoder_chunk_size;
+            cross.seq_ids_enc.assign(cross.n_enc, {});
+            for (int64_t chunk = 0; chunk < cross.n_enc; ++chunk) {
+                const int64_t begin = chunk * chunk_size;
+                const int64_t end   = std::min<int64_t>(begin + chunk_size, n_tokens);
+                for (int64_t i = begin; i < end; ++i) {
+                    if (batch.token && batch.token[i] == 0) {
+                        continue;
+                    }
+                    for (int s = 0; s < batch.n_seq_id[i]; ++s) {
+                        cross.seq_ids_enc[chunk].insert(batch.seq_id[i][s]);
+                    }
+                }
+            }
+        } else {
+            cross.seq_ids_enc.resize(n_tokens);
+            for (uint32_t i = 0; i < n_tokens; i++) {
+                cross.seq_ids_enc[i].clear();
 
-            for (int s = 0; s < batch.n_seq_id[i]; s++) {
-                const llama_seq_id seq_id = batch.seq_id[i][s];
+                for (int s = 0; s < batch.n_seq_id[i]; s++) {
+                    const llama_seq_id seq_id = batch.seq_id[i][s];
 
-                cross.seq_ids_enc[i].insert(seq_id);
+                    cross.seq_ids_enc[i].insert(seq_id);
+                }
             }
         }
     }
@@ -2643,8 +2671,8 @@ uint32_t llama_context::output_reserve(int32_t n_outputs) {
     bool has_embd_nextn = cparams.embeddings_nextn;
 
     // TODO: hacky enc-dec support
-    if (model.arch == LLM_ARCH_T5) {
-        has_logits = true;
+    if (model.arch == LLM_ARCH_T5 || model.arch == LLM_ARCH_T5GEMMA2) {
+        has_logits = model.output != nullptr;
         has_embd   = true;
     }
 
@@ -4467,6 +4495,7 @@ llama_context_params llama_context_default_params() {
         /*.sampler                     =*/ nullptr,
         /*.n_sampler                   =*/ 0,
         /*.ctx_other                   =*/ nullptr,
+        /*.encoder_chunk_size          =*/ 0,
     };
 
     return result;

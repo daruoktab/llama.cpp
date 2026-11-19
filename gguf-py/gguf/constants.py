@@ -699,6 +699,7 @@ class MODEL_ARCH(IntEnum):
     BITNET           = auto()
     T5               = auto()
     T5ENCODER        = auto()
+    T5GEMMA2         = auto()
     JAIS             = auto()
     JAIS2            = auto()
     NEMOTRON         = auto()
@@ -1048,6 +1049,9 @@ class MODEL_TENSOR(IntEnum):
     FFN_SUB_NORM         = auto()
     ATTN_SUB_NORM        = auto()
     DEC_ATTN_NORM        = auto()
+    DEC_ATTN_POST_NORM   = auto()
+    DEC_ATTN_Q_NORM      = auto()
+    DEC_ATTN_K_NORM      = auto()
     DEC_ATTN_Q           = auto()
     DEC_ATTN_K           = auto()
     DEC_ATTN_V           = auto()
@@ -1061,17 +1065,22 @@ class MODEL_TENSOR(IntEnum):
     DEC_CROSS_ATTN_OUT   = auto()
     DEC_CROSS_ATTN_REL_B = auto()
     DEC_FFN_NORM         = auto()
+    DEC_FFN_POST_NORM    = auto()
     DEC_FFN_GATE         = auto()
     DEC_FFN_DOWN         = auto()
     DEC_FFN_UP           = auto()
     DEC_OUTPUT_NORM      = auto()
     ENC_ATTN_NORM        = auto()
+    ENC_ATTN_POST_NORM   = auto()
+    ENC_ATTN_Q_NORM      = auto()
+    ENC_ATTN_K_NORM      = auto()
     ENC_ATTN_Q           = auto()
     ENC_ATTN_K           = auto()
     ENC_ATTN_V           = auto()
     ENC_ATTN_OUT         = auto()
     ENC_ATTN_REL_B       = auto()
     ENC_FFN_NORM         = auto()
+    ENC_FFN_POST_NORM    = auto()
     ENC_FFN_GATE         = auto()
     ENC_FFN_DOWN         = auto()
     ENC_FFN_UP           = auto()
@@ -1698,6 +1707,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.BITNET:           "bitnet",
     MODEL_ARCH.T5:               "t5",
     MODEL_ARCH.T5ENCODER:        "t5encoder",
+    MODEL_ARCH.T5GEMMA2:         "t5gemma2",
     MODEL_ARCH.JAIS:             "jais",
     MODEL_ARCH.JAIS2:            "jais2",
     MODEL_ARCH.NEMOTRON:         "nemotron",
@@ -2046,6 +2056,9 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.ATTN_SUB_NORM:             "blk.{bid}.attn_sub_norm",
     MODEL_TENSOR.FFN_SUB_NORM:              "blk.{bid}.ffn_sub_norm",
     MODEL_TENSOR.DEC_ATTN_NORM:             "dec.blk.{bid}.attn_norm",
+    MODEL_TENSOR.DEC_ATTN_POST_NORM:        "dec.blk.{bid}.attn_post_norm",
+    MODEL_TENSOR.DEC_ATTN_Q_NORM:           "dec.blk.{bid}.attn_q_norm",
+    MODEL_TENSOR.DEC_ATTN_K_NORM:           "dec.blk.{bid}.attn_k_norm",
     MODEL_TENSOR.DEC_ATTN_Q:                "dec.blk.{bid}.attn_q",
     MODEL_TENSOR.DEC_ATTN_K:                "dec.blk.{bid}.attn_k",
     MODEL_TENSOR.DEC_ATTN_V:                "dec.blk.{bid}.attn_v",
@@ -2059,17 +2072,22 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.DEC_CROSS_ATTN_OUT:        "dec.blk.{bid}.cross_attn_o",
     MODEL_TENSOR.DEC_CROSS_ATTN_REL_B:      "dec.blk.{bid}.cross_attn_rel_b",
     MODEL_TENSOR.DEC_FFN_NORM:              "dec.blk.{bid}.ffn_norm",
+    MODEL_TENSOR.DEC_FFN_POST_NORM:         "dec.blk.{bid}.ffn_post_norm",
     MODEL_TENSOR.DEC_FFN_GATE:              "dec.blk.{bid}.ffn_gate",
     MODEL_TENSOR.DEC_FFN_DOWN:              "dec.blk.{bid}.ffn_down",
     MODEL_TENSOR.DEC_FFN_UP:                "dec.blk.{bid}.ffn_up",
     MODEL_TENSOR.DEC_OUTPUT_NORM:           "dec.output_norm",
     MODEL_TENSOR.ENC_ATTN_NORM:             "enc.blk.{bid}.attn_norm",
+    MODEL_TENSOR.ENC_ATTN_POST_NORM:        "enc.blk.{bid}.attn_post_norm",
+    MODEL_TENSOR.ENC_ATTN_Q_NORM:           "enc.blk.{bid}.attn_q_norm",
+    MODEL_TENSOR.ENC_ATTN_K_NORM:           "enc.blk.{bid}.attn_k_norm",
     MODEL_TENSOR.ENC_ATTN_Q:                "enc.blk.{bid}.attn_q",
     MODEL_TENSOR.ENC_ATTN_K:                "enc.blk.{bid}.attn_k",
     MODEL_TENSOR.ENC_ATTN_V:                "enc.blk.{bid}.attn_v",
     MODEL_TENSOR.ENC_ATTN_OUT:              "enc.blk.{bid}.attn_o",
     MODEL_TENSOR.ENC_ATTN_REL_B:            "enc.blk.{bid}.attn_rel_b",
     MODEL_TENSOR.ENC_FFN_NORM:              "enc.blk.{bid}.ffn_norm",
+    MODEL_TENSOR.ENC_FFN_POST_NORM:         "enc.blk.{bid}.ffn_post_norm",
     MODEL_TENSOR.ENC_FFN_GATE:              "enc.blk.{bid}.ffn_gate",
     MODEL_TENSOR.ENC_FFN_DOWN:              "enc.blk.{bid}.ffn_down",
     MODEL_TENSOR.ENC_FFN_UP:                "enc.blk.{bid}.ffn_up",
@@ -5236,6 +5254,41 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.ENC_FFN_UP,
         MODEL_TENSOR.ENC_OUTPUT_NORM,
     ],
+    MODEL_ARCH.T5GEMMA2: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.DEC_ATTN_NORM,
+        MODEL_TENSOR.DEC_ATTN_POST_NORM,
+        MODEL_TENSOR.DEC_ATTN_Q_NORM,
+        MODEL_TENSOR.DEC_ATTN_K_NORM,
+        MODEL_TENSOR.DEC_ATTN_Q,
+        MODEL_TENSOR.DEC_ATTN_K,
+        MODEL_TENSOR.DEC_ATTN_V,
+        MODEL_TENSOR.DEC_ATTN_OUT,
+        MODEL_TENSOR.DEC_FFN_NORM,
+        MODEL_TENSOR.DEC_FFN_POST_NORM,
+        MODEL_TENSOR.DEC_FFN_GATE,
+        MODEL_TENSOR.DEC_FFN_DOWN,
+        MODEL_TENSOR.DEC_FFN_UP,
+        MODEL_TENSOR.DEC_OUTPUT_NORM,
+        MODEL_TENSOR.ENC_ATTN_NORM,
+        MODEL_TENSOR.ENC_ATTN_POST_NORM,
+        MODEL_TENSOR.ENC_ATTN_Q_NORM,
+        MODEL_TENSOR.ENC_ATTN_K_NORM,
+        MODEL_TENSOR.ENC_ATTN_Q,
+        MODEL_TENSOR.ENC_ATTN_K,
+        MODEL_TENSOR.ENC_ATTN_V,
+        MODEL_TENSOR.ENC_ATTN_OUT,
+        MODEL_TENSOR.ENC_FFN_NORM,
+        MODEL_TENSOR.ENC_FFN_POST_NORM,
+        MODEL_TENSOR.ENC_FFN_GATE,
+        MODEL_TENSOR.ENC_FFN_DOWN,
+        MODEL_TENSOR.ENC_FFN_UP,
+        MODEL_TENSOR.ENC_OUTPUT_NORM,
+        MODEL_TENSOR.DECISION_KEY,
+        MODEL_TENSOR.DECISION_QUERY,
+        MODEL_TENSOR.DECISION_SCORER_OUT,
+    ],
     MODEL_ARCH.JAIS: [
         MODEL_TENSOR.TOKEN_EMBD,
         MODEL_TENSOR.OUTPUT_NORM,
@@ -7352,6 +7405,7 @@ class DecisionType:
     GRANITE_SWITCH = "granite-switch"  # same as openjev, run by the decision aLoRA of granite switch
     H2O_LIGHTNING = "h2o-lightning"  # same as openjev, labels read after an answer prefill
     MINICPM_OCR_JEV = "openbmb-minicpm-ocr-jev"  # class scores of a value head read at the last token, one fixed task
+    BONGARD = "agentbull-bongard"  # bilinear judgment head over candidate_end and decision_end decoder tokens
 
 
 class VisionProjectorType:

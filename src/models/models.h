@@ -1765,6 +1765,40 @@ struct llama_model_t5encoder : public llama_model_base {
     std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
 };
 
+struct llama_model_t5gemma2 : public llama_model_base {
+    llama_model_t5gemma2(const struct llama_model_params & params) : llama_model_base(params) {}
+    void load_arch_hparams(llama_model_loader & ml) override;
+    void load_arch_tensors(llama_model_loader & ml) override;
+
+    // optional Bongard bilinear judgment head
+    ggml_tensor * decision_key        = nullptr;
+    ggml_tensor * decision_query      = nullptr;
+    ggml_tensor * decision_scorer_out = nullptr;
+
+    llama_token decision_candidate_end = LLAMA_TOKEN_NULL;
+    llama_token decision_end           = LLAMA_TOKEN_NULL;
+
+    bool has_decision_head() const {
+        return decision_key != nullptr;
+    }
+
+    class input_decision;
+    class input_chunk_pool;
+
+    struct graph_enc : public llm_graph_context {
+        graph_enc(const llm_graph_params & params);
+    };
+
+    template <bool iswa>
+    struct graph_dec : public llm_graph_context {
+        graph_dec(const llm_graph_params & params);
+    private:
+        ggml_tensor * build_decision_head(ggml_tensor * hidden, input_decision * inp, const llama_model_t5gemma2 & t5g2);
+    };
+
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
+};
+
 struct llama_model_jais : public llama_model_base {
     llama_model_jais(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;

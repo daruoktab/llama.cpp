@@ -359,9 +359,13 @@ struct llm_attn_mask {
 
 class llm_graph_input_attn_no_cache : public llm_graph_input_i {
 public:
-    llm_graph_input_attn_no_cache(const llama_hparams & hparams, const llama_cparams & cparams) :
+    llm_graph_input_attn_no_cache(
+            const llama_hparams & hparams,
+            const llama_cparams & cparams,
+            bool swa_bidir_half_open = false) :
         hparams(hparams),
-        cparams(cparams) {
+        cparams(cparams),
+        swa_bidir_half_open(swa_bidir_half_open) {
     }
     ~llm_graph_input_attn_no_cache() = default;
 
@@ -373,6 +377,7 @@ public:
 
     const llama_hparams hparams;
     const llama_cparams cparams;
+    const bool swa_bidir_half_open;
 };
 
 class llm_graph_input_attn_kv : public llm_graph_input_i {
@@ -1308,7 +1313,7 @@ struct llm_graph_context {
                   float   kq_scale,
                     int   il) const;
 
-    llm_graph_input_attn_no_cache * build_attn_inp_no_cache() const;
+    llm_graph_input_attn_no_cache * build_attn_inp_no_cache(bool swa_bidir_half_open = false) const;
 
     ggml_tensor * build_attn(
             llm_graph_input_attn_no_cache * inp,

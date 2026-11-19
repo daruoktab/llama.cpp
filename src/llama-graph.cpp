@@ -640,7 +640,12 @@ void llm_graph_input_attn_no_cache::set_input(const llama_ubatch * ubatch) {
                 }
 
                 // apply SWA if any
-                if (llama_hparams::is_masked_swa(n_swa, swa_type, p0, p1)) {
+                if (swa_bidir_half_open && n_swa > 0) {
+                    const int64_t dist = (int64_t) p1 - p0;
+                    if (dist < -((int64_t) n_swa / 2) || dist >= ((int64_t) n_swa + 1) / 2) {
+                        continue;
+                    }
+                } else if (llama_hparams::is_masked_swa(n_swa, swa_type, p0, p1)) {
                     continue;
                 }
 
@@ -1213,7 +1218,6 @@ void llm_graph_input_attn_cross::set_input(const llama_ubatch * ubatch) {
     const int64_t n_tokens = ubatch->n_tokens;
 
     GGML_ASSERT(ggml_backend_buffer_is_host(cross_attn_mask.raw->buffer));
-    GGML_ASSERT(!ubatch->equal_seqs()); // TODO: use ubatch->n_seqs instead of failing
 
     const auto fill_mask = [&](auto * data) {
         using T = std::remove_reference_t<decltype(*data)>;
@@ -3030,8 +3034,9 @@ ggml_tensor * llm_graph_context::build_inp_cross_embd() const {
     //    return cur;
     //}
 
+    const uint32_t chunk_size = std::max(1u, cparams.encoder_chunk_size);
     const auto n_embd = !cross->v_embd.empty() ? cross->n_embd : hparams.n_embd_inp();
-    const auto n_enc  = !cross->v_embd.empty() ? cross->n_enc  : hparams.n_ctx_train;
+    const auto n_enc  = !cross->v_embd.empty() ? cross->n_enc  : (cparams.n_ubatch + chunk_size - 1) / chunk_size;
 
     cur = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd, n_enc);
     ggml_set_input(cur);
@@ -3243,8 +3248,8 @@ ggml_tensor * llm_graph_context::build_attn_mha(
     return cur;
 }
 
-llm_graph_input_attn_no_cache * llm_graph_context::build_attn_inp_no_cache() const {
-    auto inp = std::make_unique<llm_graph_input_attn_no_cache>(hparams, cparams);
+llm_graph_input_attn_no_cache * llm_graph_context::build_attn_inp_no_cache(bool swa_bidir_half_open) const {
+    auto inp = std::make_unique<llm_graph_input_attn_no_cache>(hparams, cparams, swa_bidir_half_open);
 
     // flash attention requires an f16 mask
     const auto type_mask = cparams.flash_attn ? GGML_TYPE_F16 : GGML_TYPE_F32;
@@ -3863,7 +3868,8 @@ ggml_tensor * llm_graph_context::build_attn(
 llm_graph_input_attn_cross * llm_graph_context::build_attn_inp_cross() const {
     auto inp = std::make_unique<llm_graph_input_attn_cross>(cross);
 
-    const int32_t n_enc = !cross->v_embd.empty() ? cross->n_enc : hparams.n_ctx_train;
+    const uint32_t chunk_size = std::max(1u, cparams.encoder_chunk_size);
+    const int32_t n_enc = !cross->v_embd.empty() ? cross->n_enc : (cparams.n_ubatch + chunk_size - 1) / chunk_size;
 
     // flash attention requires an f16 mask
     const auto type_mask = cparams.flash_attn ? GGML_TYPE_F16 : GGML_TYPE_F32;

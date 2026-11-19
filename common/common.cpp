@@ -1170,6 +1170,7 @@ static const std::map<common_decision_type, std::string> COMMON_DECISION_TYPE_NA
     { COMMON_DECISION_TYPE_MINICPM_OCR_JEV, "openbmb-minicpm-ocr-jev" },
     { COMMON_DECISION_TYPE_LFM3_D1,        "lfm3-d1"       },
     { COMMON_DECISION_TYPE_LFM3_D1_OMNI,   "lfm3-d1-omni"  },
+    { COMMON_DECISION_TYPE_BONGARD,        "agentbull-bongard" },
     // for future models, ALWAYS add org name prefix to avoid name collisions, e.g. "orgname-modelname"
 };
 
@@ -1192,6 +1193,68 @@ common_decision_type common_get_decision_type(const struct llama_model * model) 
         return COMMON_DECISION_TYPE_NONE;
     }
     return common_decision_type_from_string(buf);
+}
+
+float common_get_decision_temperature(const struct llama_model * model, const std::string & kind, size_t n_options) {
+    char arch_buf[64];
+    if (llama_model_meta_val_str(model, "general.architecture", arch_buf, sizeof(arch_buf)) < 0) {
+        return 1.0f;
+    }
+    const std::string prefix = std::string(arch_buf) + ".decision.temperature.";
+    const std::string keys[2] = {
+        prefix + kind + "." + std::to_string(n_options),
+        prefix + kind,
+    };
+    char val_buf[64];
+    for (const auto & key : keys) {
+        if (llama_model_meta_val_str(model, key.c_str(), val_buf, sizeof(val_buf)) >= 0) {
+            char * end = nullptr;
+            const float val = std::strtof(val_buf, &end);
+            if (end != val_buf && *end == '\0' && std::isfinite(val) && val > 0.0f) {
+                return val;
+            }
+        }
+    }
+    return 1.0f;
+}
+
+std::vector<double> common_decision_softmax(const float * logits, size_t n_options, double temperature) {
+    if (logits == nullptr || n_options == 0 || !std::isfinite(temperature) || temperature <= 0.0) {
+        throw std::invalid_argument("invalid arguments to common_decision_softmax");
+    }
+    std::vector<double> z(n_options);
+    for (size_t i = 0; i < n_options; ++i) {
+        if (!std::isfinite(logits[i])) {
+            throw std::invalid_argument("non-finite logit in common_decision_softmax");
+        }
+        z[i] = (double) logits[i];
+    }
+    if (temperature >= 1.0) {
+        for (double & v : z) {
+            v /= temperature;
+        }
+        const double z_max = *std::max_element(z.begin(), z.end());
+        for (double & v : z) {
+            v -= z_max;
+        }
+    } else {
+        const double z_max = *std::max_element(z.begin(), z.end());
+        for (double & v : z) {
+            v = (v - z_max) / temperature;
+        }
+    }
+    double sum = 0.0;
+    for (double & v : z) {
+        v = std::exp(v);
+        sum += v;
+    }
+    if (!std::isfinite(sum) || sum <= 0.0) {
+        throw std::runtime_error("common_decision_softmax failed to produce finite probabilities");
+    }
+    for (double & v : z) {
+        v /= sum;
+    }
+    return z;
 }
 
 common_gguf_info common_get_gguf_info(const std::string & fname) {
@@ -1299,7 +1362,7 @@ common_init_result::common_init_result(common_params & params, bool model_only) 
     // minicpm-ocr-jev reads its class scores from the pooled output, the pooling type is the one of the GGUF
     if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF ||
         decision_type == COMMON_DECISION_TYPE_LFM2_D1_OMNI || decision_type == COMMON_DECISION_TYPE_VLLM_DECISION2 ||
-        decision_type == COMMON_DECISION_TYPE_MINICPM_OCR_JEV) {
+        decision_type == COMMON_DECISION_TYPE_MINICPM_OCR_JEV || decision_type == COMMON_DECISION_TYPE_BONGARD) {
         const auto pooling_type = decision_type == COMMON_DECISION_TYPE_MINICPM_OCR_JEV ? LLAMA_POOLING_TYPE_UNSPECIFIED : LLAMA_POOLING_TYPE_NONE;
 
         params.embedding    = true;

@@ -436,6 +436,9 @@ extern "C" {
         // a source/target/parent context
         // can be utilized in various ways, for example by sharing results or llama_memory between 2 contexts
         struct llama_context * ctx_other;
+
+        // encoder token chunk size for mean pooling (0 or 1 = unpooled, 4 = KaLM reranker)
+        uint32_t encoder_chunk_size;
     };
 
     struct llama_model_tensor_override {

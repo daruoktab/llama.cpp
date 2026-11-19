@@ -999,6 +999,7 @@ enum common_decision_type {
     COMMON_DECISION_TYPE_MINICPM_OCR_JEV, // one score per class, the pooled embeddings output of the last token
     COMMON_DECISION_TYPE_LFM3_D1,       // same as lfm2-d1, non-causal, label codes A..Z then AA, AB..
     COMMON_DECISION_TYPE_LFM3_D1_OMNI,  // same as lfm3-d1
+    COMMON_DECISION_TYPE_BONGARD,       // t5gemma2 enc-dec bilinear judgment head over candidate_end and decision_end
     COMMON_DECISION_TYPE_UNKNOWN, // a decision model of a type that is not supported
 };
 
@@ -1006,6 +1007,12 @@ enum common_decision_type {
 #define COMMON_DECISION_LFM3_D1_SET_SIZE 16
 
 common_decision_type common_get_decision_type(const struct llama_model * model);
+
+// read calibrated temperature from "<arch>.decision.temperature.<kind>.<n_options>" -> "<kind>" -> 1.0
+float common_get_decision_temperature(const struct llama_model * model, const std::string & kind, size_t n_options);
+
+// numerically stable float64 temperature-scaled softmax over decision head logits
+std::vector<double> common_decision_softmax(const float * logits, size_t n_options, double temperature = 1.0);
 
 // metadata of a GGUF file, read without loading the model
 struct common_gguf_info {

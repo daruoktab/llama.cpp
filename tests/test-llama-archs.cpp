@@ -341,7 +341,7 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe, const 
             arch == LLM_ARCH_ZAYA1) {
         n_head_kv = 2; // GQA coverage
     }
-    if (arch == LLM_ARCH_BEAM) {
+    if (arch == LLM_ARCH_BEAM || arch == LLM_ARCH_T5GEMMA2) {
         n_head    = 4;
         n_head_kv = 2;
         n_layer   = 4;
@@ -356,6 +356,12 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe, const 
     ms.add_kv(LLM_KV_FEATURES_LENGTH,           n_embd);
     ms.add_kv(LLM_KV_BLOCK_COUNT,               n_layer);
     ms.add_kv(LLM_KV_LEADING_DENSE_BLOCK_COUNT, uint32_t(1));
+
+    if (arch == LLM_ARCH_T5GEMMA2) {
+        ms.add_kv(LLM_KV_DECODER_BLOCK_COUNT,    n_layer);
+        ms.add_kv(LLM_KV_DECODER_START_TOKEN_ID, uint32_t(2));
+        ms.add_kv(LLM_KV_ROPE_FREQ_BASE_SWA,     10000.0f);
+    }
 
     if (arch == LLM_ARCH_K2_HORIZON) {
         ms.add_kv(LLM_KV_ROPE_SCALING_YARN_BETA_FAST, 128.0f);
@@ -1409,7 +1415,7 @@ static int test_backends(const std::string & arch_filter, const size_t seed, con
             continue;
         }
 
-        const bool encode = arch == LLM_ARCH_T5 || arch == LLM_ARCH_DREAM || arch == LLM_ARCH_LLADA || arch == LLM_ARCH_LLADA_MOE || arch == LLM_ARCH_RND1;
+        const bool encode = arch == LLM_ARCH_T5 || arch == LLM_ARCH_T5GEMMA2 || arch == LLM_ARCH_DREAM || arch == LLM_ARCH_LLADA || arch == LLM_ARCH_LLADA_MOE || arch == LLM_ARCH_RND1;
         for (bool moe : {false, true}) {
             if (moe && !moe_implemented(arch)) {
                 continue;
@@ -1756,7 +1762,7 @@ static int test_kv_shift(const std::string & arch_filter, const size_t seed, con
         if (arch == LLM_ARCH_EAGLE3 || arch == LLM_ARCH_DFLASH || arch == LLM_ARCH_GEMMA4_ASSISTANT) {
             continue;
         }
-        const bool encode = arch == LLM_ARCH_T5 || arch == LLM_ARCH_DREAM || arch == LLM_ARCH_LLADA || arch == LLM_ARCH_LLADA_MOE || arch == LLM_ARCH_RND1;
+        const bool encode = arch == LLM_ARCH_T5 || arch == LLM_ARCH_T5GEMMA2 || arch == LLM_ARCH_DREAM || arch == LLM_ARCH_LLADA || arch == LLM_ARCH_LLADA_MOE || arch == LLM_ARCH_RND1;
         if (encode) {
             continue;
         }
